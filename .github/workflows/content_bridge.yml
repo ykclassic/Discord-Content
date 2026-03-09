@@ -1,0 +1,39 @@
+name: DailySparkVibes Content Bridge
+
+on:
+  schedule:
+    # Runs every 6 hours to check for new inputs
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    # This enables the "Run workflow" button in the Actions tab
+
+jobs:
+  run-bridge:
+    name: Execute AI Content Bridge
+    runs-on: ubuntu-latest
+    
+    # Safety: Prevents the bot from running indefinitely
+    timeout-minutes: 60 
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install discord.py huggingface_hub requests
+
+      - name: Run Spark Bridge Script
+        env:
+          # Ensure these match the names in your GitHub Secrets exactly
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          HF_API_KEY: ${{ secrets.HF_API_KEY }}
+          DRAFT_CHANNEL_ID: ${{ secrets.DRAFT_CHANNEL_ID }}
+        run: python spark_bridge.py
