@@ -2,17 +2,17 @@ name: DailySparkVibes Content Bridge
 
 on:
   schedule:
-    # Runs every 6 hours to check for new inputs or keep the bot alive
+    # Runs every 6 hours to check for new inputs
     - cron: '0 */6 * * *'
   workflow_dispatch:
-    # Allows you to manually start the bot from the GitHub Actions tab
+    # This enables the "Run workflow" button in the Actions tab
 
 jobs:
   run-bridge:
     name: Execute AI Content Bridge
     runs-on: ubuntu-latest
     
-    # Prevents the workflow from running indefinitely and draining minutes
+    # Safety: Prevents the bot from running indefinitely
     timeout-minutes: 60 
 
     steps:
@@ -23,7 +23,7 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          cache: 'pip' # Speeds up subsequent runs
+          cache: 'pip'
 
       - name: Install Dependencies
         run: |
@@ -32,9 +32,8 @@ jobs:
 
       - name: Run Spark Bridge Script
         env:
-          # Mapping GitHub Secrets to Script Environment Variables
+          # Ensure these match the names in your GitHub Secrets exactly
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           HF_API_KEY: ${{ secrets.HF_API_KEY }}
           DRAFT_CHANNEL_ID: ${{ secrets.DRAFT_CHANNEL_ID }}
-        # Runs the script. It will listen for your Discord messages
         run: python spark_bridge.py
