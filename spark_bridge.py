@@ -3,91 +3,86 @@ from discord.ui import View
 import os
 import sys
 import requests
+import json
 from datetime import datetime
 
-# 1. SECURITY & ENVIRONMENT CHECK
+# 1. SETUP
 TOKEN = os.getenv('DISCORD_TOKEN')
 DRAFT_ID_STR = os.getenv('DRAFT_CHANNEL_ID')
 
 if not TOKEN or not DRAFT_ID_STR:
-    print("❌ ERROR: DISCORD_TOKEN or DRAFT_CHANNEL_ID missing.")
+    print("❌ ERROR: Missing Secrets.")
     sys.exit(1)
 
 DRAFT_CHANNEL_ID = int(DRAFT_ID_STR)
 
-# 2. AESTHETICS & TAGS
 DAILY_TAGS = {
-    0: "#MondayMotivation #DailySpark",
-    1: "#TechTuesday #Innovation",
-    2: "#WisdomWednesday #Growth",
-    3: "#ThoughtfulThursday #Vision",
-    4: "#FutureFriday #TechSolute",
-    5: "#SuccessSaturday #Mindset",
+    0: "#MondayMotivation #DailySpark", 1: "#TechTuesday #Innovation",
+    2: "#WisdomWednesday #Growth", 3: "#ThoughtfulThursday #Vision",
+    4: "#FutureFriday #TechSolute", 5: "#SuccessSaturday #Mindset",
     6: "#SundayReflect #Balance"
 }
 
-# 3. INTERACTIVE BUTTONS
+# 2. BUTTON LOGIC
 class ApprovalView(View):
-    def __init__(self, embed):
-        super().__init__(timeout=None)
-        self.embed = embed
+    def __init__(self):
+        super().__init__(timeout=180) # View stays active for 3 minutes
 
     @discord.ui.button(label="Post Now", style=discord.ButtonStyle.green, emoji="🚀")
     async def post_callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message("✅ Content bridged! Shutting down...", ephemeral=True)
-        await interaction.client.close() 
-        self.stop()
+        await interaction.response.edit_message(content="✅ **Content Approved and Bridged.**", view=None)
+        # In a real bridge, you'd send the embed to your public channel here
+        # interaction.client.dispatch("bridge_post", interaction.message.embeds[0])
 
     @discord.ui.button(label="Discard", style=discord.ButtonStyle.red, emoji="🗑️")
     async def cancel_callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message("🗑️ Draft discarded.", ephemeral=True)
-        self.stop()
+        await interaction.response.edit_message(content="🗑️ **Draft Discarded.**", view=None)
 
-# 4. BOT LOGIC
+# 3. BOT LOGIC
 class SparkAIBridge(discord.Client):
     async def on_ready(self):
-        print(f"--- DailySparkVibes AI Bridge (Pollinations Mode) Active ---")
+        print(f"--- DailySparkVibes Bridge Online ---")
 
     async def on_message(self, message):
         if message.author.bot or message.channel.id != DRAFT_CHANNEL_ID:
             return
 
         topic = message.content
-        status = await message.channel.send(f"🌌 Crafting luxury content for: **{topic}**...")
+        status = await message.channel.send(f"🌌 Synthesizing content for: **{topic}**...")
 
         try:
-            # STEP 1: Text Generation via Pollinations (Text API)
-            # We use a clean prompt to get a high-end quote
-            text_prompt = f"Write one short, elite motivational quote about {topic} for a tech CEO. No hashtags, no intro."
-            text_url = f"https://text.pollinations.ai/{text_prompt.replace(' ', '%20')}?model=mistral"
-            
-            text_response = requests.get(text_url)
-            quote = text_response.text.strip() if text_response.status_code == 200 else "Drive the future."
+            # STEP 1: Improved Text Generation
+            # Using a more reliable prompt structure for Pollinations
+            prompt_payload = {
+                "messages": [{"role": "user", "content": f"Write one unique, elite 1-sentence motivational quote about {topic} for a luxury tech brand. No hashtags."}],
+                "model": "mistral"
+            }
+            text_req = requests.post("https://text.pollinations.ai/", json=prompt_payload)
+            quote = text_req.text.strip() if text_req.status_code == 200 else "Innovation is the only path forward."
 
-            # STEP 2: Image Generation (Pollinations Image API)
-            encoded_topic = topic.replace(" ", "%20")
-            image_url = f"https://image.pollinations.ai/prompt/futuristic%20luxury%20{encoded_topic}%20neon%20cyan%20magenta%20black%20background?width=1024&height=1024&nologo=true"
+            # STEP 2: Image Generation
+            image_url = f"https://image.pollinations.ai/prompt/futuristic%20luxury%20{topic.replace(' ', '%20')}%20neon%20cyan%20magenta%20black%20background?width=1024&height=1024&nologo=true"
 
-            # STEP 3: Formatting the Embed
+            # STEP 3: Embed Creation
             day = datetime.now().weekday()
-            color = 0x00FFFF if day % 2 == 0 else 0xFF00FF 
-            
             embed = discord.Embed(
                 title=f"DailySpark | {topic.upper()}",
-                description=f"*{quote}*\n\n**Tags:**\n{DAILY_TAGS.get(day, '#DailySpark')}",
-                color=color,
+                description=f"*{quote}*",
+                color=0x00FFFF if day % 2 == 0 else 0xFF00FF,
                 timestamp=datetime.now()
             )
+            embed.add_field(name="Tags:", value=DAILY_TAGS.get(day, "#DailySpark"))
             embed.set_image(url=image_url)
             embed.set_footer(text="TechSolute Intelligence | DailySparkVibes")
 
-            await message.channel.send(embed=embed, view=ApprovalView(embed))
+            # Send embed with interactive buttons
+            await message.channel.send(embed=embed, view=ApprovalView())
             await status.delete()
 
         except Exception as e:
-            await status.edit(content=f"❌ **Bridge Error:** {str(e)[:100]}")
+            await status.edit(content=f"❌ **AI Bridge Error:** {str(e)[:50]}")
 
-# 5. EXECUTION
+# 4. START
 async def main():
     intents = discord.Intents.default()
     intents.message_content = True 
