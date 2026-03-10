@@ -6,83 +6,75 @@ import time
 from datetime import datetime
 from huggingface_hub import InferenceClient
 
-# 1. AUTH & CONFIG
+# 1. SETUP
 TOKEN = os.getenv('DISCORD_TOKEN')
 HF_TOKEN = os.getenv('HF_API_KEY')
 DRAFT_ID_STR = os.getenv('DRAFT_CHANNEL_ID')
 
 if not TOKEN or not HF_TOKEN or not DRAFT_ID_STR:
-    print("❌ ERROR: Missing Secrets in GitHub.")
+    print("❌ ERROR: Missing Secrets.")
     sys.exit(1)
 
-DRAFT_CHANNEL_ID = int(DRAFT_ID_STR)
-
-# Model: Zephyr 7B is more reliable for text_generation than Mistral on free tier
+# Using Zephyr 7B - Now calling the conversational task specifically
 client = InferenceClient(model="HuggingFaceH4/zephyr-7b-beta", token=HF_TOKEN)
 
-# 2. INTERACTIVE BUTTONS
+# 2. UI BUTTONS
 class ApprovalView(View):
     def __init__(self):
         super().__init__(timeout=300)
 
     @discord.ui.button(label="Post Now", style=discord.ButtonStyle.green, emoji="🚀")
     async def post_callback(self, interaction: discord.Interaction):
-        # Acknowledge immediately to prevent "Interaction Failed"
-        await interaction.response.edit_message(content="✅ **Success!** Content bridged.", view=None)
+        await interaction.response.edit_message(content="✅ **Content Approved.**", view=None)
 
     @discord.ui.button(label="Discard", style=discord.ButtonStyle.red, emoji="🗑️")
     async def cancel_callback(self, interaction: discord.Interaction):
-        await interaction.response.edit_message(content="🗑️ **Discarded.**", view=None)
+        await interaction.response.edit_message(content="🗑️ **Draft Discarded.**", view=None)
 
 # 3. CORE LOGIC
 class SparkAIBridge(discord.Client):
-    async def on_ready(self):
-        print(f"--- TechSolute AI Bridge Online ---")
-
     async def on_message(self, message):
-        if message.author.bot or message.channel.id != DRAFT_CHANNEL_ID:
+        if message.author.bot or message.channel.id != int(DRAFT_ID_STR):
             return
 
         topic = message.content
-        status = await message.channel.send(f"🌌 Processing topic: **{topic}**...")
+        status = await message.channel.send(f"🌌 Requesting conversational AI for: **{topic}**...")
 
-        # STEP 1: Text Generation (Using stable text_generation method)
+        # STEP 1: Conversational Generation (Fixes the task error)
         quote = ""
-        prompt = f"<|system|>\nYou are a luxury tech brand voice.</s>\n<|user|>\nWrite one short elite motivational quote about {topic}. No hashtags.</s>\n<|assistant|>\n"
-        
+        messages = [
+            {"role": "system", "content": "You are a luxury tech brand voice. Write one short, elite motivational quote."},
+            {"role": "user", "content": f"Topic: {topic}. Generate one 1-sentence quote. No hashtags."}
+        ]
+
         for attempt in range(3):
             try:
-                # Citing: text_generation is the most stable free tier method
-                output = client.text_generation(
-                    prompt, 
-                    max_new_tokens=40,
-                    return_full_text=False,
-                    stop_sequences=["</s>"]
+                # chat_completion is the only supported task for this model/provider combo
+                response = client.chat_completion(
+                    messages=messages,
+                    max_tokens=50
                 )
-                quote = output.strip()
+                quote = response.choices[0].message.content.strip()
+                # Remove quotes if the AI added them
+                quote = quote.replace('"', '')
                 break
             except Exception as e:
                 err_str = str(e)
                 if "503" in err_str:
-                    await status.edit(content=f"⏳ Model is warming up... (Attempt {attempt+1}/3)")
-                    time.sleep(20) # Citing: Wait for model load
+                    await status.edit(content=f"⏳ Server is warming up... (Attempt {attempt+1}/3)")
+                    time.sleep(20)
                 else:
-                    await status.edit(content=f"❌ **HF Error:** {err_str[:150]}")
+                    await status.edit(content=f"❌ **HF Error:** {err_str[:100]}")
                     return
 
-        if not quote:
-            await status.edit(content="❌ AI failed to return text.")
-            return
-
-        # STEP 2: Image Generation (Pollinations)
+        # STEP 2: Image Generation
         image_url = f"https://image.pollinations.ai/prompt/futuristic%20luxury%20{topic.replace(' ', '%20')}%20neon%20cyan%20magenta%20black%20background?width=1024&height=1024&nologo=true"
 
         # STEP 3: Embed Delivery
-        day = datetime.now().weekday()
         embed = discord.Embed(
             title=f"DailySpark | {topic.upper()}",
             description=f"*{quote}*",
-            color=0x00FFFF if day % 2 == 0 else 0xFF00FF,
+            color=0x00FFFF,
             timestamp=datetime.now()
         )
         embed.set_image(url=image_url)
@@ -91,7 +83,6 @@ class SparkAIBridge(discord.Client):
         await message.channel.send(embed=embed, view=ApprovalView())
         await status.delete()
 
-# 4. START
 async def main():
     intents = discord.Intents.default()
     intents.message_content = True 
