@@ -15,8 +15,13 @@ if not TOKEN or not HF_TOKEN or not DRAFT_ID_STR:
     print("❌ ERROR: Missing Secrets.")
     sys.exit(1)
 
-# Using Zephyr 7B - Now calling the conversational task specifically
-client = InferenceClient(model="HuggingFaceH4/zephyr-7b-beta", token=HF_TOKEN)
+# List of highly available conversational models (2026 Free Tier)
+# We rotate these if one fails
+MODEL_POOL = [
+    "HuggingFaceH4/zephyr-7b-beta",
+    "Qwen/Qwen2.5-7B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3"
+]
 
 # 2. UI BUTTONS
 class ApprovalView(View):
@@ -25,7 +30,7 @@ class ApprovalView(View):
 
     @discord.ui.button(label="Post Now", style=discord.ButtonStyle.green, emoji="🚀")
     async def post_callback(self, interaction: discord.Interaction):
-        await interaction.response.edit_message(content="✅ **Content Approved.**", view=None)
+        await interaction.response.edit_message(content="✅ **Content Approved and Bridged.**", view=None)
 
     @discord.ui.button(label="Discard", style=discord.ButtonStyle.red, emoji="🗑️")
     async def cancel_callback(self, interaction: discord.Interaction):
@@ -38,36 +43,34 @@ class SparkAIBridge(discord.Client):
             return
 
         topic = message.content
-        status = await message.channel.send(f"🌌 Requesting conversational AI for: **{topic}**...")
+        status = await message.channel.send(f"🌌 Launching AI Bridge for: **{topic}**...")
 
-        # STEP 1: Conversational Generation (Fixes the task error)
+        # STEP 1: Multi-Model Generation Loop
         quote = ""
         messages = [
-            {"role": "system", "content": "You are a luxury tech brand voice. Write one short, elite motivational quote."},
-            {"role": "user", "content": f"Topic: {topic}. Generate one 1-sentence quote. No hashtags."}
+            {"role": "system", "content": "You are a luxury tech brand voice. Write one short, elite 1-sentence motivational quote."},
+            {"role": "user", "content": f"Topic: {topic}. No hashtags, no intro."}
         ]
 
-        for attempt in range(3):
+        # Try different models if one fails (Citing for multi-model logic)
+        for model_id in MODEL_POOL:
             try:
-                # chat_completion is the only supported task for this model/provider combo
-                response = client.chat_completion(
-                    messages=messages,
-                    max_tokens=50
-                )
-                quote = response.choices[0].message.content.strip()
-                # Remove quotes if the AI added them
-                quote = quote.replace('"', '')
-                break
+                client = InferenceClient(model=model_id, token=HF_TOKEN)
+                response = client.chat_completion(messages=messages, max_tokens=45)
+                quote = response.choices[0].message.content.strip().replace('"', '')
+                if quote: 
+                    print(f"✅ Success with model: {model_id}")
+                    break
             except Exception as e:
-                err_str = str(e)
-                if "503" in err_str:
-                    await status.edit(content=f"⏳ Server is warming up... (Attempt {attempt+1}/3)")
-                    time.sleep(20)
-                else:
-                    await status.edit(content=f"❌ **HF Error:** {err_str[:100]}")
-                    return
+                print(f"⚠️ {model_id} failed: {str(e)[:50]}")
+                continue 
 
-        # STEP 2: Image Generation
+        # FINAL FALLBACK (If all AI models fail)
+        if not quote:
+            quote = f"The future of {topic} belongs to those who build it today."
+            await message.channel.send("⚠️ **Notice:** AI servers busy. Using high-end fallback quote.")
+
+        # STEP 2: Image Generation (Pollinations)
         image_url = f"https://image.pollinations.ai/prompt/futuristic%20luxury%20{topic.replace(' ', '%20')}%20neon%20cyan%20magenta%20black%20background?width=1024&height=1024&nologo=true"
 
         # STEP 3: Embed Delivery
