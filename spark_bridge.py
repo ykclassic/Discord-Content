@@ -6,17 +6,17 @@ import time
 from datetime import datetime
 from huggingface_hub import InferenceClient
 
-# 1. AUTH
+# 1. AUTH & CONFIG
 TOKEN = os.getenv('DISCORD_TOKEN')
 HF_TOKEN = os.getenv('HF_API_KEY')
 DRAFT_ID_STR = os.getenv('DRAFT_CHANNEL_ID')
 
 if not TOKEN or not HF_TOKEN:
-    print("❌ ERROR: Secrets not loaded.")
+    print("❌ ERROR: Secrets missing.")
     sys.exit(1)
 
-# Using the Instruct model which is better for the Free API
-client = InferenceClient(model="mistralai/Mistral-7B-Instruct-v0.3", token=HF_TOKEN)
+# Using Zephyr 7B - Faster and more available on Free Tier
+client = InferenceClient(model="HuggingFaceH4/zephyr-7b-beta", token=HF_TOKEN)
 
 class ApprovalView(View):
     def __init__(self):
@@ -32,31 +32,39 @@ class SparkAIBridge(discord.Client):
             return
 
         topic = message.content
-        status = await message.channel.send(f"🌌 Hugging Face is generating for: **{topic}**...")
+        status = await message.channel.send(f"🌌 Zephyr AI is generating for: **{topic}**...")
 
         # STEP 1: Text Generation (With 503 Retry)
         quote = ""
-        for attempt in range(3):
+        for attempt in range(4):
             try:
-                # Chat completion is the standard for Instruct models
+                # Zephyr is an "Instruct" model, so we use Chat Completion
                 response = client.chat_completion(
-                    messages=[{"role": "user", "content": f"Write a short luxury quote about {topic}."}],
-                    max_tokens=40
+                    messages=[{"role": "user", "content": f"Write a one-sentence luxury motivational quote about {topic}. Be minimalist and elite."}],
+                    max_tokens=45
                 )
                 quote = response.choices[0].message.content.strip()
                 break
             except Exception as e:
                 if "503" in str(e):
-                    await status.edit(content=f"⏳ Loading model (Attempt {attempt+1}/3)...")
-                    time.sleep(20)
+                    await status.edit(content=f"⏳ Waking up the model... (Attempt {attempt+1}/4)")
+                    time.sleep(20) # Official wait time for cold-start models
                 else:
-                    await status.edit(content=f"❌ **API Error:** {str(e)[:100]}")
+                    await status.edit(content=f"❌ **HF Error:** {str(e)[:100]}")
                     return
 
-        # STEP 2: Image & Embed
-        image_url = f"https://image.pollinations.ai/prompt/luxury%20{topic.replace(' ', '%20')}?nologo=true"
-        embed = discord.Embed(title=f"DailySpark | {topic.upper()}", description=f"*{quote}*", color=0x00FFFF)
+        # STEP 2: Image Generation (Pollinations)
+        image_url = f"https://image.pollinations.ai/prompt/luxury%20{topic.replace(' ', '%20')}%20futuristic%20minimalist?nologo=true"
+
+        # STEP 3: Embed & UI
+        day = datetime.now().weekday()
+        embed = discord.Embed(
+            title=f"DailySpark | {topic.upper()}", 
+            description=f"*{quote}*", 
+            color=0x00FFFF if day % 2 == 0 else 0xFF00FF
+        )
         embed.set_image(url=image_url)
+        embed.set_footer(text="TechSolute Intelligence | DailySparkVibes")
 
         await message.channel.send(embed=embed, view=ApprovalView())
         await status.delete()
